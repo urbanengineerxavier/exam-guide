@@ -8,7 +8,7 @@ import streamlit as st
 import yaml
 from pathlib import Path
 from config import RESOURCES_PATH, OPENAI_API_KEY, OPENAI_MODEL, TAG_TO_EXAM, EXAM_SECTIONS
-from quiz import generate_mixed_quiz, generate_page_quiz, generate_section_quiz, generate_flashcards
+from quiz import generate_mixed_quiz, generate_page_quiz, generate_section_quiz
 
 # Page config
 st.set_page_config(
@@ -181,70 +181,6 @@ def render_section_checkpoint(file_key: str, heading: str, section_text: str):
                 del st.session_state.section_quiz_answers[ans_key]
             st.rerun()
 
-
-def render_flashcards(file_key: str, meta: dict):
-    """Render interactive flashcards for key terms from frontmatter tags."""
-    tags = meta.get('tags', [])
-    if not tags:
-        return
-
-    st.subheader("🃏 Flashcard Review")
-
-    fc_key = f"{file_key}__flashcards"
-    flip_key = f"{file_key}__flipped"
-
-    if 'flashcards' not in st.session_state:
-        st.session_state.flashcards = {}
-    if 'flipped_cards' not in st.session_state:
-        st.session_state.flipped_cards = {}
-
-    cards = st.session_state.flashcards.get(fc_key)
-
-    if cards is None:
-        if not OPENAI_API_KEY:
-            st.warning("Set OPENAI_API_KEY to enable flashcards.")
-            return
-        with st.spinner("Generating flashcards..."):
-            cards = generate_flashcards(
-                title=meta.get('title', ''),
-                tags=tags,
-                summary=meta.get('summary', '')
-            )
-            st.session_state.flashcards[fc_key] = cards
-            st.session_state.flipped_cards[flip_key] = set()
-            st.rerun()
-
-    if not cards:
-        st.warning("Could not generate flashcards.")
-        return
-
-    flipped = st.session_state.flipped_cards.get(flip_key, set())
-
-    cols = st.columns(3)
-    for i, card in enumerate(cards):
-        with cols[i % 3]:
-            is_flipped = i in flipped
-            if is_flipped:
-                st.info(f"**{card['term']}**\n\n{card['definition']}")
-                if st.button("Hide", key=f"fc_hide_{fc_key}_{i}", use_container_width=True):
-                    flipped.discard(i)
-                    st.session_state.flipped_cards[flip_key] = flipped
-                    st.rerun()
-            else:
-                st.markdown(
-                    f"<div style='border:1px solid #ddd; border-radius:8px; padding:1rem; "
-                    f"text-align:center; min-height:80px; display:flex; align-items:center; "
-                    f"justify-content:center;'><strong>{card['term']}</strong></div>",
-                    unsafe_allow_html=True
-                )
-                if st.button("Flip ↩", key=f"fc_flip_{fc_key}_{i}", use_container_width=True):
-                    flipped.add(i)
-                    st.session_state.flipped_cards[flip_key] = flipped
-                    st.rerun()
-
-    if st.button("🔄 Regenerate flashcards", key=f"fc_regen_{fc_key}"):
-        del st.session_state.flashcards[fc_key]
-        st.rerun()
 
 
 def get_exam_badge(tags: list) -> str:
@@ -491,10 +427,6 @@ def show_study():
             st.markdown(rendered, unsafe_allow_html=True)
             if should_add_checkpoint(heading):
                 render_section_checkpoint(file_key, heading, content)
-
-    # Flashcard review at end of lesson
-    st.divider()
-    render_flashcards(file_key, meta)
 
     # Contextual chatbot
     st.divider()
