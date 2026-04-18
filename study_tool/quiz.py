@@ -173,6 +173,105 @@ Generate {num_questions} questions testing the key concepts from this specific l
         return []
 
 
+def generate_section_quiz(section_title: str, section_text: str, n: int = 2) -> list[Question]:
+    """Generate targeted review questions for a single markdown section."""
+    if not HAS_OPENAI or not OPENAI_API_KEY:
+        return []
+
+    client = OpenAI(api_key=OPENAI_API_KEY)
+
+    prompt = f"""Generate {n} review questions based ONLY on this section of a lesson.
+
+SECTION: {section_title}
+
+CONTENT:
+{section_text[:2000]}
+
+Generate exactly {n} questions that test understanding of concepts in this specific section.
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {"role": "system", "content": PAGE_QUIZ_PROMPT},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=900
+        )
+        return parse_quiz_response(response.choices[0].message.content)
+    except Exception as e:
+        print(f"[!] Error generating section quiz: {e}")
+        return []
+
+
+FLASHCARD_PROMPT = """You are a study assistant creating concise flashcards for key technical terms.
+
+For each term provided, write a clear, memorable definition in 1-3 sentences. Focus on:
+- What it is
+- Why it matters or when to use it
+- One concrete distinguishing detail
+
+Format:
+TERM: [term]
+DEFINITION: [definition]
+
+---
+"""
+
+
+def generate_flashcards(title: str, tags: list[str], summary: str) -> list[dict]:
+    """Generate {term, definition} flashcards for key terms from the lesson."""
+    if not HAS_OPENAI or not OPENAI_API_KEY:
+        return []
+
+    client = OpenAI(api_key=OPENAI_API_KEY)
+
+    terms = ', '.join(tags)
+    prompt = f"""Create flashcards for these key terms from the lesson "{title}":
+
+TERMS: {terms}
+
+LESSON CONTEXT: {summary}
+
+Generate one flashcard per term. Keep definitions concise and memorable.
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {"role": "system", "content": FLASHCARD_PROMPT},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.6,
+            max_tokens=1200
+        )
+        return parse_flashcard_response(response.choices[0].message.content)
+    except Exception as e:
+        print(f"[!] Error generating flashcards: {e}")
+        return []
+
+
+def parse_flashcard_response(text: str) -> list[dict]:
+    """Parse flashcard response into list of {term, definition} dicts."""
+    cards = []
+    blocks = re.split(r'\n---+\n?', text)
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+        term_match = re.search(r'TERM:\s*(.+)', block)
+        def_match = re.search(r'DEFINITION:\s*(.+?)(?=\nTERM:|\Z)', block, re.DOTALL)
+        if term_match and def_match:
+            cards.append({
+                'term': term_match.group(1).strip(),
+                'definition': def_match.group(1).strip()
+            })
+    return cards
+
+
 def generate_mixed_quiz(topics: list[dict], num_questions: int = 10) -> list[Question]:
     """Generate a mixed quiz from multiple topics."""
     if not HAS_OPENAI:

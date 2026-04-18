@@ -8,7 +8,7 @@ import streamlit as st
 import yaml
 from pathlib import Path
 from config import RESOURCES_PATH, OPENAI_API_KEY, TAG_TO_EXAM, EXAM_SECTIONS
-from quiz import generate_mixed_quiz, generate_page_quiz
+from quiz import generate_mixed_quiz, generate_page_quiz, generate_section_quiz, generate_flashcards
 
 # Page config
 st.set_page_config(
@@ -92,6 +92,156 @@ def clean_html(text: str, file_path: Path = None) -> str:
     # Clean up whitespace
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
+
+
+def split_by_sections(body: str) -> list[tuple[str, str]]:
+    """Split markdown body into (heading, content) pairs on ## headings."""
+    chunks = re.split(r'\n(?=## )', '\n' + body)
+    result = []
+    for chunk in chunks:
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        lines = chunk.split('\n', 1)
+        heading = lines[0].lstrip('#').strip()
+        content = lines[1].strip() if len(lines) > 1 else ''
+        result.append((heading, content))
+    return result
+
+
+def should_add_checkpoint(heading: str) -> bool:
+    """Return True for substantive sections that warrant a review checkpoint."""
+    skip = {'introduction', 'lesson objectives', 'summary', 'objectives'}
+    h = heading.lower()
+    # Skip intro/summary sections
+    if any(h == s or h.startswith(s) for s in skip):
+        return False
+    # Add checkpoints for lettered sections (A., B., C., D.) or any other substantive section
+    return True
+
+
+def render_section_checkpoint(file_key: str, heading: str, section_text: str):
+    """Render the collapsible checkpoint expander after a section."""
+    state_key = f"{file_key}__sq__{heading}"
+    ans_key = f"{file_key}__sa__{heading}"
+
+    if 'section_quiz' not in st.session_state:
+        st.session_state.section_quiz = {}
+    if 'section_quiz_answers' not in st.session_state:
+        st.session_state.section_quiz_answers = {}
+
+    with st.expander(f"🔍 Check your understanding — {heading}"):
+        questions = st.session_state.section_quiz.get(state_key)
+
+        if questions is None:
+            if not OPENAI_API_KEY:
+                st.warning("Set OPENAI_API_KEY to enable checkpoints.")
+                return
+            with st.spinner("Generating questions..."):
+                questions = generate_section_quiz(heading, section_text, n=2)
+                st.session_state.section_quiz[state_key] = questions
+                st.session_state.section_quiz_answers[ans_key] = {}
+                st.rerun()
+
+        if not questions:
+            st.warning("Could not generate questions for this section.")
+            return
+
+        answers = st.session_state.section_quiz_answers.get(ans_key, {})
+
+        for i, q in enumerate(questions):
+            st.markdown(f"**Q{i+1}: {q.question}**")
+            user_ans = answers.get(i)
+
+            for letter, option in q.options.items():
+                is_correct = letter == q.answer
+                if user_ans is not None:
+                    if is_correct:
+                        st.success(f"{letter}) {option} ✓")
+                    elif user_ans == letter:
+                        st.error(f"{letter}) {option} ✗")
+                    else:
+                        st.write(f"{letter}) {option}")
+                else:
+                    if st.button(f"{letter}) {option}", key=f"sq_{state_key}_{i}_{letter}",
+                                 use_container_width=True):
+                        st.session_state.section_quiz_answers.setdefault(ans_key, {})[i] = letter
+                        st.rerun()
+
+            if user_ans:
+                st.caption(f"💡 {q.explanation}")
+            st.markdown("")
+
+        if st.button("🔄 Refresh questions", key=f"sq_refresh_{state_key}"):
+            del st.session_state.section_quiz[state_key]
+            if ans_key in st.session_state.section_quiz_answers:
+                del st.session_state.section_quiz_answers[ans_key]
+            st.rerun()
+
+
+def render_flashcards(file_key: str, meta: dict):
+    """Render interactive flashcards for key terms from frontmatter tags."""
+    tags = meta.get('tags', [])
+    if not tags:
+        return
+
+    st.subheader("🃏 Flashcard Review")
+
+    fc_key = f"{file_key}__flashcards"
+    flip_key = f"{file_key}__flipped"
+
+    if 'flashcards' not in st.session_state:
+        st.session_state.flashcards = {}
+    if 'flipped_cards' not in st.session_state:
+        st.session_state.flipped_cards = {}
+
+    cards = st.session_state.flashcards.get(fc_key)
+
+    if cards is None:
+        if not OPENAI_API_KEY:
+            st.warning("Set OPENAI_API_KEY to enable flashcards.")
+            return
+        with st.spinner("Generating flashcards..."):
+            cards = generate_flashcards(
+                title=meta.get('title', ''),
+                tags=tags,
+                summary=meta.get('summary', '')
+            )
+            st.session_state.flashcards[fc_key] = cards
+            st.session_state.flipped_cards[flip_key] = set()
+            st.rerun()
+
+    if not cards:
+        st.warning("Could not generate flashcards.")
+        return
+
+    flipped = st.session_state.flipped_cards.get(flip_key, set())
+
+    cols = st.columns(3)
+    for i, card in enumerate(cards):
+        with cols[i % 3]:
+            is_flipped = i in flipped
+            if is_flipped:
+                st.info(f"**{card['term']}**\n\n{card['definition']}")
+                if st.button("Hide", key=f"fc_hide_{fc_key}_{i}", use_container_width=True):
+                    flipped.discard(i)
+                    st.session_state.flipped_cards[flip_key] = flipped
+                    st.rerun()
+            else:
+                st.markdown(
+                    f"<div style='border:1px solid #ddd; border-radius:8px; padding:1rem; "
+                    f"text-align:center; min-height:80px; display:flex; align-items:center; "
+                    f"justify-content:center;'><strong>{card['term']}</strong></div>",
+                    unsafe_allow_html=True
+                )
+                if st.button("Flip ↩", key=f"fc_flip_{fc_key}_{i}", use_container_width=True):
+                    flipped.add(i)
+                    st.session_state.flipped_cards[flip_key] = flipped
+                    st.rerun()
+
+    if st.button("🔄 Regenerate flashcards", key=f"fc_regen_{fc_key}"):
+        del st.session_state.flashcards[fc_key]
+        st.rerun()
 
 
 def get_exam_badge(tags: list) -> str:
@@ -258,83 +408,21 @@ def show_study():
 
     st.divider()
 
-    # Show full markdown content
+    # Render content section by section with checkpoints after each substantive section
+    file_key = str(current_file)
     clean_body = clean_html(body)
-    rendered = embed_images(clean_body, current_file)
-    st.markdown(rendered, unsafe_allow_html=True)
+    sections = split_by_sections(clean_body)
 
-    # Quick Quiz section
+    for heading, content in sections:
+        rendered = embed_images(f"## {heading}\n\n{content}", current_file)
+        st.markdown(rendered, unsafe_allow_html=True)
+
+        if should_add_checkpoint(heading):
+            render_section_checkpoint(file_key, heading, content)
+
+    # Flashcard review at end of lesson
     st.divider()
-    st.subheader("🎯 Quick Review")
-
-    # Initialize page quiz state
-    if 'page_quiz' not in st.session_state:
-        st.session_state.page_quiz = {}
-    if 'page_quiz_answers' not in st.session_state:
-        st.session_state.page_quiz_answers = {}
-
-    # Use file path as key for quiz state
-    quiz_key = str(current_file)
-    current_quiz = st.session_state.page_quiz.get(quiz_key, [])
-
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        num_q = st.selectbox("Questions", [3, 5], key="page_quiz_num", label_visibility="collapsed")
-    with col2:
-        if st.button("📝 Generate Quiz", type="primary"):
-            if not OPENAI_API_KEY:
-                st.error("Set OPENAI_API_KEY in .env file")
-            else:
-                with st.spinner("Generating questions..."):
-                    title = meta.get('title', current_file.stem)
-                    questions = generate_page_quiz(title, clean_body, num_q)
-                    if questions:
-                        st.session_state.page_quiz[quiz_key] = questions
-                        st.session_state.page_quiz_answers[quiz_key] = {}
-                        st.rerun()
-                    else:
-                        st.error("Failed to generate questions. Check terminal for errors.")
-
-    # Display quiz if we have one
-    if current_quiz:
-        answers = st.session_state.page_quiz_answers.get(quiz_key, {})
-
-        for i, q in enumerate(current_quiz):
-            st.markdown(f"**Q{i+1}: {q.question}**")
-
-            user_ans = answers.get(i)
-            for letter, option in q.options.items():
-                is_selected = user_ans == letter
-                is_correct = letter == q.answer
-                show_result = user_ans is not None
-
-                if show_result and is_correct:
-                    st.success(f"{letter}) {option} ✓")
-                elif show_result and is_selected and not is_correct:
-                    st.error(f"{letter}) {option} ✗")
-                elif is_selected:
-                    st.info(f"{letter}) {option}")
-                else:
-                    if st.button(f"{letter}) {option}", key=f"pq_{quiz_key}_{i}_{letter}",
-                                use_container_width=True):
-                        st.session_state.page_quiz_answers.setdefault(quiz_key, {})[i] = letter
-                        st.rerun()
-
-            if user_ans:
-                st.caption(f"💡 {q.explanation}")
-
-            st.markdown("---")
-
-        # Show score if all answered
-        if len(answers) == len(current_quiz):
-            correct = sum(1 for i, q in enumerate(current_quiz) if answers.get(i) == q.answer)
-            st.metric("Score", f"{correct}/{len(current_quiz)}")
-
-            if st.button("🔄 New Quiz"):
-                del st.session_state.page_quiz[quiz_key]
-                if quiz_key in st.session_state.page_quiz_answers:
-                    del st.session_state.page_quiz_answers[quiz_key]
-                st.rerun()
+    render_flashcards(file_key, meta)
 
     # Navigation buttons
     st.divider()
