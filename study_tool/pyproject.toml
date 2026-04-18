@@ -1,0 +1,10 @@
+[project]
+name = "databricks-genai-study"
+version = "0.1.0"
+description = "Study tool for Databricks GenAI certification exam"
+requires-python = ">=3.10"
+dependencies = [
+    "openai>=1.0.0",
+    "pyyaml>=6.0",
+    "streamlit>=1.30.0",
+]
