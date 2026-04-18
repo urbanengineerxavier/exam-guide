@@ -7,7 +7,7 @@ import random
 import streamlit as st
 import yaml
 from pathlib import Path
-from config import RESOURCES_PATH, OPENAI_API_KEY, TAG_TO_EXAM, EXAM_SECTIONS
+from config import RESOURCES_PATH, OPENAI_API_KEY, OPENAI_MODEL, TAG_TO_EXAM, EXAM_SECTIONS
 from quiz import generate_mixed_quiz, generate_page_quiz, generate_section_quiz, generate_flashcards
 
 # Page config
@@ -94,17 +94,20 @@ def clean_html(text: str, file_path: Path = None) -> str:
     return text.strip()
 
 
-def split_by_sections(body: str) -> list[tuple[str, str]]:
-    """Split markdown body into (heading, content) pairs on ## headings."""
-    chunks = re.split(r'\n(?=## )', '\n' + body)
+def split_by_sections(body: str) -> list[tuple[str | None, str]]:
+    """Split markdown body into (heading, content) pairs on ## headings.
+    Content before the first ## heading is returned as (None, content).
+    Only actual ## sections get a heading — never add checkpoints to None entries.
+    """
+    parts = re.split(r'\n(## [^\n]+)', body)
     result = []
-    for chunk in chunks:
-        chunk = chunk.strip()
-        if not chunk:
-            continue
-        lines = chunk.split('\n', 1)
-        heading = lines[0].lstrip('#').strip()
-        content = lines[1].strip() if len(lines) > 1 else ''
+    # parts[0] is everything before the first ## heading
+    if parts[0].strip():
+        result.append((None, parts[0].strip()))
+    # remaining parts alternate: heading line, content
+    for i in range(1, len(parts), 2):
+        heading = parts[i].lstrip('#').strip()
+        content = parts[i + 1].strip() if i + 1 < len(parts) else ''
         result.append((heading, content))
     return result
 
@@ -339,6 +342,71 @@ def show_home():
         st.write(f"• **{section}** ({weight})")
 
 
+def get_chat_response(messages: list[dict], title: str, content: str) -> str:
+    """Get a response from the chatbot grounded in the current lesson."""
+    from openai import OpenAI
+    client = OpenAI(api_key=OPENAI_API_KEY)
+
+    system = f"""You are a helpful study assistant for a Databricks Generative AI certification course.
+
+The student is currently studying this lesson: {title}
+
+LESSON CONTENT:
+{content[:4000]}
+
+Your role:
+- Answer questions about this lesson clearly and helpfully
+- Feel free to explain concepts in more depth than the document covers — use analogies and examples
+- If asked about something not explicitly in the lesson, use your knowledge to help
+- Keep answers focused and concise"""
+
+    try:
+        response = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[{"role": "system", "content": system}] + messages,
+            temperature=0.7,
+            max_tokens=800
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Sorry, I couldn't generate a response: {e}"
+
+
+def render_chat_panel(file_key: str, meta: dict, content: str):
+    """Render the contextual chatbot panel for the current lesson."""
+    st.subheader("💬 Ask a Question")
+
+    if 'chat_messages' not in st.session_state:
+        st.session_state.chat_messages = {}
+
+    msgs = st.session_state.chat_messages.get(file_key, [])
+
+    # Display chat history
+    for msg in msgs:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # Chat input
+    if prompt := st.chat_input("Ask anything about this lesson..."):
+        if not OPENAI_API_KEY:
+            st.error("Set OPENAI_API_KEY in your .env file to use the chatbot.")
+        else:
+            msgs.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
+            with st.chat_message("assistant"):
+                with st.spinner(""):
+                    reply = get_chat_response(msgs, meta.get('title', ''), content)
+                st.markdown(reply)
+            msgs.append({"role": "assistant", "content": reply})
+            st.session_state.chat_messages[file_key] = msgs
+
+    if msgs:
+        if st.button("🗑 Clear chat", key=f"clear_chat_{file_key}"):
+            st.session_state.chat_messages[file_key] = []
+            st.rerun()
+
+
 def show_study():
     """Show study mode with folder-based navigation."""
     st.title("📖 Study Mode")
@@ -414,15 +482,23 @@ def show_study():
     sections = split_by_sections(clean_body)
 
     for heading, content in sections:
-        rendered = embed_images(f"## {heading}\n\n{content}", current_file)
-        st.markdown(rendered, unsafe_allow_html=True)
-
-        if should_add_checkpoint(heading):
-            render_section_checkpoint(file_key, heading, content)
+        if heading is None:
+            # Content before the first ## heading (title, preamble) — no checkpoint
+            rendered = embed_images(content, current_file)
+            st.markdown(rendered, unsafe_allow_html=True)
+        else:
+            rendered = embed_images(f"## {heading}\n\n{content}", current_file)
+            st.markdown(rendered, unsafe_allow_html=True)
+            if should_add_checkpoint(heading):
+                render_section_checkpoint(file_key, heading, content)
 
     # Flashcard review at end of lesson
     st.divider()
     render_flashcards(file_key, meta)
+
+    # Contextual chatbot
+    st.divider()
+    render_chat_panel(file_key, meta, clean_body)
 
     # Navigation buttons
     st.divider()
