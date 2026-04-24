@@ -199,7 +199,12 @@ def render_page_quiz(file_key: str, meta: dict, content: str):
         if cf.exists():
             raw = json.loads(cf.read_text())
             questions = [Question(**q) for q in raw]
-            st.session_state.page_quiz[file_key] = {'questions': questions, 'answers': {}, 'submitted': False}
+            existing = st.session_state.page_quiz.get(file_key, {})
+            st.session_state.page_quiz[file_key] = {
+                'questions': questions,
+                'answers': existing.get('answers', {}),
+                'submitted': existing.get('submitted', False),
+            }
         elif OPENAI_API_KEY:
             with st.spinner("Generating quiz..."):
                 num_q = random.randint(5, 10)
