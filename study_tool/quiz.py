@@ -1,5 +1,6 @@
 """Quiz generation using OpenAI API."""
 
+import random
 import re
 from dataclasses import dataclass
 from config import OPENAI_API_KEY, OPENAI_MODEL
@@ -317,11 +318,19 @@ def parse_quiz_response(text: str) -> list[Question]:
             exp_match = re.search(r'EXPLANATION:\s*(.+?)(?=\n---|\nOBJECTIVE:|\nQ:|\Z)', block, re.DOTALL)
             explanation = exp_match.group(1).strip() if exp_match else "No explanation provided."
 
+            # Shuffle options so the correct answer isn't always in position B
+            letters = ['A', 'B', 'C', 'D']
+            correct_text = options[answer]
+            option_texts = [options[l] for l in letters if l in options]
+            random.shuffle(option_texts)
+            shuffled_options = {l: t for l, t in zip(letters, option_texts)}
+            new_answer = next(l for l, t in shuffled_options.items() if t == correct_text)
+
             questions.append(Question(
                 objective=objective,
                 question=question_text,
-                options=options,
-                answer=answer,
+                options=shuffled_options,
+                answer=new_answer,
                 explanation=explanation
             ))
 

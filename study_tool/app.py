@@ -14,7 +14,7 @@ from quiz import generate_mixed_quiz, generate_page_quiz, generate_section_quiz
 st.set_page_config(
     page_title="Databricks GenAI Study",
     page_icon="📚",
-    layout="wide"
+    layout="centered"
 )
 
 # Custom CSS
