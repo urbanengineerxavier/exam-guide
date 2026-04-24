@@ -17,6 +17,11 @@ if ENV_FILE.exists():
 
 # OpenAI
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+try:
+    import streamlit as st
+    OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY", OPENAI_API_KEY)
+except Exception:
+    pass
 OPENAI_MODEL = "gpt-4o-mini"
 
 # Map tags to exam sections (for badge display)
