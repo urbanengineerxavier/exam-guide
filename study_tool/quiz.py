@@ -69,6 +69,31 @@ EXPLANATION: [Brief explanation of why this is correct]
 ---
 """
 
+SENIOR_QUIZ_PROMPT = """You are a Databricks Certified Generative AI Engineer exam coach preparing senior software engineers for certification.
+
+Generate scenario-based, conceptual questions that test deep understanding — not trivia or syntax recall.
+
+Focus on:
+- WHY and WHEN to use specific approaches (not just what they are)
+- Trade-offs between approaches (e.g. fixed vs semantic chunking, RAG vs fine-tuning, online vs offline evaluation)
+- Real-world architectural decisions a senior engineer would face when building production GenAI systems on Databricks
+- Databricks-specific implementation patterns (Unity Catalog, Vector Search, MLflow, Model Serving, Agent Framework)
+
+Each wrong answer must be plausible — something a less experienced engineer might choose. Avoid obviously wrong distractors.
+
+Format each question as:
+OBJECTIVE: [Exam objective this tests]
+Q: [Scenario-based question]
+A) [Option]
+B) [Option]
+C) [Option]
+D) [Option]
+ANSWER: [Letter]
+EXPLANATION: [Why this is correct, and specifically why each wrong answer is less suitable]
+
+---
+"""
+
 
 def generate_quiz(topic: dict, num_questions: int = 5) -> list[Question]:
     """Generate quiz questions for a topic using OpenAI."""
@@ -126,8 +151,9 @@ Generate {num_questions} scenario-based questions with 4 options each.
         return []
 
 
-def generate_page_quiz(title: str, content: str, num_questions: int = 3) -> list[Question]:
-    """Generate quick review questions for a single page of content."""
+def generate_page_quiz(title: str, content: str, num_questions: int = 5,
+                       exam_objectives: str = "") -> list[Question]:
+    """Generate senior-engineer-level quiz questions for a full lesson page."""
     if not HAS_OPENAI:
         print("\n  [!] OpenAI library not installed. Run: pip install openai")
         return []
@@ -138,28 +164,27 @@ def generate_page_quiz(title: str, content: str, num_questions: int = 3) -> list
 
     client = OpenAI(api_key=OPENAI_API_KEY)
 
-    # Limit content length for speed
-    content = content[:3000]
+    objectives_block = f"\nRELEVANT EXAM OBJECTIVES:\n{exam_objectives}\n" if exam_objectives else ""
 
-    prompt = f"""Generate {num_questions} quick review questions for this lesson.
+    prompt = f"""Generate {num_questions} scenario-based exam questions for this lesson.
 
 LESSON: {title}
-
-CONTENT:
+{objectives_block}
+FULL LESSON CONTENT:
 {content}
 
-Generate {num_questions} questions testing the key concepts from this specific lesson.
+Generate exactly {num_questions} questions that test deep conceptual understanding suitable for a senior engineer.
 """
 
     try:
         response = client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=[
-                {"role": "system", "content": PAGE_QUIZ_PROMPT},
+                {"role": "system", "content": SENIOR_QUIZ_PROMPT},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
-            max_tokens=3000
+            max_tokens=4000
         )
 
         result = parse_quiz_response(response.choices[0].message.content)

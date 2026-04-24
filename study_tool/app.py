@@ -2,13 +2,15 @@
 """Streamlit web UI for Databricks GenAI Exam Study Tool."""
 
 import base64
+import hashlib
+import json
 import re
 import random
 import streamlit as st
 import yaml
 from pathlib import Path
-from config import RESOURCES_PATH, OPENAI_API_KEY, OPENAI_MODEL, TAG_TO_EXAM, EXAM_SECTIONS
-from quiz import generate_mixed_quiz, generate_page_quiz, generate_section_recap
+from config import RESOURCES_PATH, OPENAI_API_KEY, OPENAI_MODEL, TAG_TO_EXAM, EXAM_SECTIONS, CACHE_PATH, EXAM_GUIDE_PATH
+from quiz import generate_mixed_quiz, generate_page_quiz, generate_section_recap, Question
 
 # Page config
 st.set_page_config(
@@ -42,6 +44,40 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+
+_exam_guide_cache: dict = {}
+
+
+def _cache_file(prefix: str, *keys: str) -> Path:
+    h = hashlib.md5("__".join(keys).encode()).hexdigest()
+    return CACHE_PATH / f"{prefix}_{h}.json"
+
+
+def get_exam_objectives(tags: list) -> str:
+    """Extract relevant exam objectives from the exam guide for the given tags."""
+    if not _exam_guide_cache:
+        if EXAM_GUIDE_PATH.exists():
+            _exam_guide_cache['text'] = EXAM_GUIDE_PATH.read_text(encoding='utf-8')
+        else:
+            return ""
+
+    guide_text = _exam_guide_cache.get('text', '')
+    sections = {tag: TAG_TO_EXAM.get(tag) for tag in tags if tag in TAG_TO_EXAM}
+    target_sections = set(s for s in sections.values() if s)
+
+    if not target_sections:
+        return ""
+
+    objectives = []
+    for section_name in target_sections:
+        # Find the section block in the exam guide
+        pattern = rf'(?:Section \d+[:\s]+)?{re.escape(section_name)}.*?(?=\n##|\nSection \d|\Z)'
+        match = re.search(pattern, guide_text, re.DOTALL | re.IGNORECASE)
+        if match:
+            objectives.append(match.group(0).strip())
+
+    return "\n\n".join(objectives)
 
 
 def parse_frontmatter(content: str) -> tuple[dict, str]:
@@ -131,12 +167,17 @@ def render_section_recap(file_key: str, heading: str, section_text: str):
     recap = st.session_state.section_recaps.get(state_key)
 
     if recap is None:
-        if not OPENAI_API_KEY:
-            return
-        with st.spinner("Generating recap..."):
-            recap = generate_section_recap(heading, section_text)
+        # Check disk cache first
+        cf = _cache_file("recap", file_key, heading)
+        if cf.exists():
+            recap = json.loads(cf.read_text())["recap"]
             st.session_state.section_recaps[state_key] = recap
-            st.rerun()
+        elif OPENAI_API_KEY:
+            with st.spinner("Generating recap..."):
+                recap = generate_section_recap(heading, section_text)
+                cf.write_text(json.dumps({"recap": recap}))
+                st.session_state.section_recaps[state_key] = recap
+                st.rerun()
 
     if recap:
         st.info(f"**📌 Recap — {heading}**\n\n{recap}")
@@ -153,14 +194,26 @@ def render_page_quiz(file_key: str, meta: dict, content: str):
     questions = state.get('questions')
 
     if questions is None:
-        if not OPENAI_API_KEY:
+        # Check disk cache first
+        cf = _cache_file("quiz", file_key)
+        if cf.exists():
+            raw = json.loads(cf.read_text())
+            questions = [Question(**q) for q in raw]
+            st.session_state.page_quiz[file_key] = {'questions': questions, 'answers': {}, 'submitted': False}
+        elif OPENAI_API_KEY:
+            with st.spinner("Generating quiz..."):
+                num_q = random.randint(5, 10)
+                objectives = get_exam_objectives(meta.get('tags', []))
+                questions = generate_page_quiz(
+                    meta.get('title', ''), content,
+                    num_questions=num_q, exam_objectives=objectives
+                )
+                cf.write_text(json.dumps([q.__dict__ for q in questions]))
+                st.session_state.page_quiz[file_key] = {'questions': questions, 'answers': {}, 'submitted': False}
+                st.rerun()
+        else:
             st.warning("Set OPENAI_API_KEY to enable the page quiz.")
             return
-        with st.spinner("Generating quiz..."):
-            num_q = random.randint(5, 10)
-            questions = generate_page_quiz(meta.get('title', ''), content, num_questions=num_q)
-            st.session_state.page_quiz[file_key] = {'questions': questions, 'answers': {}, 'submitted': False}
-            st.rerun()
 
     if not questions:
         st.warning("Could not generate quiz for this page.")
@@ -217,7 +270,11 @@ def render_page_quiz(file_key: str, meta: dict, content: str):
             else:
                 st.warning("📚 Keep studying!")
 
-        if st.button("🔄 Retake Quiz", key=f"pq_retake_{file_key}"):
+        if st.button("🔄 New Quiz", key=f"pq_retake_{file_key}"):
+            # Clear disk cache so a fresh set of questions is generated
+            cf = _cache_file("quiz", file_key)
+            if cf.exists():
+                cf.unlink()
             del st.session_state.page_quiz[file_key]
             st.rerun()
 

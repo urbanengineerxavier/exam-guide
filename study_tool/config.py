@@ -6,6 +6,9 @@ from pathlib import Path
 # Paths
 BASE_PATH = Path(__file__).parent.parent
 RESOURCES_PATH = BASE_PATH / "resources_v2"
+EXAM_GUIDE_PATH = RESOURCES_PATH / "Databricks-GenAI-Exam-Guide.md"
+CACHE_PATH = Path(__file__).parent / ".cache"
+CACHE_PATH.mkdir(exist_ok=True)
 
 # Load .env file if it exists
 ENV_FILE = BASE_PATH / ".env"
