@@ -253,9 +253,9 @@ def render_page_quiz(file_key: str, meta: dict, content: str):
             with st.expander(f"{icon} Q{i+1}: {q.question[:60]}...", expanded=not is_correct):
                 for letter, option in q.options.items():
                     if letter == q.answer:
-                        st.markdown(f"**{letter}) {option}** ✓")
+                        st.success(f"{letter}) {option} ✓")
                     elif letter == user_ans:
-                        st.markdown(f"~~{letter}) {option}~~ ✗")
+                        st.error(f"{letter}) {option} ✗")
                     else:
                         st.write(f"{letter}) {option}")
                 st.info(f"💡 {q.explanation}")
@@ -701,9 +701,9 @@ def show_quiz():
 
                 for letter, option in q.options.items():
                     if letter == q.answer:
-                        st.markdown(f"**{letter}) {option}** ✓")
+                        st.success(f"{letter}) {option} ✓")
                     elif letter == user_ans:
-                        st.markdown(f"~~{letter}) {option}~~ ✗")
+                        st.error(f"{letter}) {option} ✗")
                     else:
                         st.write(f"{letter}) {option}")
 

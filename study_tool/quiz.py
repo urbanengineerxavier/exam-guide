@@ -38,7 +38,7 @@ B) [Option]
 C) [Option]
 D) [Option]
 ANSWER: [Correct letter]
-EXPLANATION: [Why this answer is correct, and what makes the other options incorrect or less suitable]
+EXPLANATION: [Why this answer is correct, and what makes the other options incorrect or less suitable. Do NOT reference option letters (A, B, C, D) — describe each option by its content.]
 
 ---
 
@@ -64,7 +64,7 @@ B) [Option]
 C) [Option]
 D) [Option]
 ANSWER: [Letter]
-EXPLANATION: [Brief explanation of why this is correct]
+EXPLANATION: [Brief explanation of why this is correct. Do NOT reference option letters (A, B, C, D) — describe the answer by its content.]
 
 ---
 """
@@ -89,7 +89,7 @@ B) [Option]
 C) [Option]
 D) [Option]
 ANSWER: [Letter]
-EXPLANATION: [Why this is correct, and specifically why each wrong answer is less suitable]
+EXPLANATION: [Why the correct answer is right, and why the other options are less suitable. Do NOT reference option letters (A, B, C, D) in the explanation — describe the options by their content instead, as options may be reordered.]
 
 ---
 """
