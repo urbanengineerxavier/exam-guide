@@ -8,7 +8,7 @@ import streamlit as st
 import yaml
 from pathlib import Path
 from config import RESOURCES_PATH, OPENAI_API_KEY, OPENAI_MODEL, TAG_TO_EXAM, EXAM_SECTIONS
-from quiz import generate_mixed_quiz, generate_page_quiz, generate_section_quiz
+from quiz import generate_mixed_quiz, generate_page_quiz, generate_section_recap
 
 # Page config
 st.set_page_config(
@@ -112,75 +112,114 @@ def split_by_sections(body: str) -> list[tuple[str | None, str]]:
     return result
 
 
-def should_add_checkpoint(heading: str) -> bool:
-    """Return True for substantive sections that warrant a review checkpoint."""
+def should_add_recap(heading: str) -> bool:
+    """Return True for substantive sections that warrant a recap."""
     skip = {'introduction', 'lesson objectives', 'summary', 'objectives'}
     h = heading.lower()
-    # Skip intro/summary sections
     if any(h == s or h.startswith(s) for s in skip):
         return False
-    # Add checkpoints for lettered sections (A., B., C., D.) or any other substantive section
     return True
 
 
-def render_section_checkpoint(file_key: str, heading: str, section_text: str):
-    """Render the collapsible checkpoint expander after a section."""
-    state_key = f"{file_key}__sq__{heading}"
-    ans_key = f"{file_key}__sa__{heading}"
+def render_section_recap(file_key: str, heading: str, section_text: str):
+    """Render a coloured recap summary after a section."""
+    state_key = f"{file_key}__recap__{heading}"
 
-    if 'section_quiz' not in st.session_state:
-        st.session_state.section_quiz = {}
-    if 'section_quiz_answers' not in st.session_state:
-        st.session_state.section_quiz_answers = {}
+    if 'section_recaps' not in st.session_state:
+        st.session_state.section_recaps = {}
 
-    with st.expander(f"🔍 Check your understanding — {heading}"):
-        questions = st.session_state.section_quiz.get(state_key)
+    recap = st.session_state.section_recaps.get(state_key)
 
-        if questions is None:
-            if not OPENAI_API_KEY:
-                st.warning("Set OPENAI_API_KEY to enable checkpoints.")
-                return
-            with st.spinner("Generating questions..."):
-                questions = generate_section_quiz(heading, section_text, n=2)
-                st.session_state.section_quiz[state_key] = questions
-                st.session_state.section_quiz_answers[ans_key] = {}
-                st.rerun()
-
-        if not questions:
-            st.warning("Could not generate questions for this section.")
+    if recap is None:
+        if not OPENAI_API_KEY:
             return
+        with st.spinner("Generating recap..."):
+            recap = generate_section_recap(heading, section_text)
+            st.session_state.section_recaps[state_key] = recap
+            st.rerun()
 
-        answers = st.session_state.section_quiz_answers.get(ans_key, {})
+    if recap:
+        st.info(f"**📌 Recap — {heading}**\n\n{recap}")
+
+
+def render_page_quiz(file_key: str, meta: dict, content: str):
+    """Render a 5-10 question quiz at the bottom of a lesson page."""
+    st.subheader("📝 Page Quiz")
+
+    if 'page_quiz' not in st.session_state:
+        st.session_state.page_quiz = {}
+
+    state = st.session_state.page_quiz.get(file_key, {})
+    questions = state.get('questions')
+
+    if questions is None:
+        if not OPENAI_API_KEY:
+            st.warning("Set OPENAI_API_KEY to enable the page quiz.")
+            return
+        with st.spinner("Generating quiz..."):
+            num_q = random.randint(5, 10)
+            questions = generate_page_quiz(meta.get('title', ''), content, num_questions=num_q)
+            st.session_state.page_quiz[file_key] = {'questions': questions, 'answers': {}, 'submitted': False}
+            st.rerun()
+
+    if not questions:
+        st.warning("Could not generate quiz for this page.")
+        return
+
+    total = len(questions)
+    answers = st.session_state.page_quiz[file_key]['answers']
+    submitted = st.session_state.page_quiz[file_key]['submitted']
+
+    if not submitted:
+        answered = len(answers)
+        st.progress(answered / total, f"Answered: {answered}/{total}")
 
         for i, q in enumerate(questions):
             st.markdown(f"**Q{i+1}: {q.question}**")
-            user_ans = answers.get(i)
-
+            current_ans = answers.get(i)
             for letter, option in q.options.items():
-                is_correct = letter == q.answer
-                if user_ans is not None:
-                    if is_correct:
-                        st.success(f"{letter}) {option} ✓")
-                    elif user_ans == letter:
-                        st.error(f"{letter}) {option} ✗")
-                    else:
-                        st.write(f"{letter}) {option}")
-                else:
-                    if st.button(f"{letter}) {option}", key=f"sq_{state_key}_{i}_{letter}",
-                                 use_container_width=True):
-                        st.session_state.section_quiz_answers.setdefault(ans_key, {})[i] = letter
-                        st.rerun()
-
-            if user_ans:
-                st.caption(f"💡 {q.explanation}")
+                btn_type = "primary" if current_ans == letter else "secondary"
+                if st.button(f"{letter}) {option}", key=f"pq_{file_key}_{i}_{letter}",
+                             type=btn_type, use_container_width=True):
+                    st.session_state.page_quiz[file_key]['answers'][i] = letter
+                    st.rerun()
             st.markdown("")
 
-        if st.button("🔄 Refresh questions", key=f"sq_refresh_{state_key}"):
-            del st.session_state.section_quiz[state_key]
-            if ans_key in st.session_state.section_quiz_answers:
-                del st.session_state.section_quiz_answers[ans_key]
-            st.rerun()
+        if len(answers) == total:
+            if st.button("📊 Submit Quiz", type="primary", use_container_width=True):
+                st.session_state.page_quiz[file_key]['submitted'] = True
+                st.rerun()
+    else:
+        correct = 0
+        for i, q in enumerate(questions):
+            user_ans = answers.get(i, "")
+            is_correct = user_ans == q.answer
+            if is_correct:
+                correct += 1
+            icon = "✅" if is_correct else "❌"
+            with st.expander(f"{icon} Q{i+1}: {q.question[:60]}...", expanded=not is_correct):
+                for letter, option in q.options.items():
+                    if letter == q.answer:
+                        st.markdown(f"**{letter}) {option}** ✓")
+                    elif letter == user_ans:
+                        st.markdown(f"~~{letter}) {option}~~ ✗")
+                    else:
+                        st.write(f"{letter}) {option}")
+                st.info(f"💡 {q.explanation}")
 
+        pct = int(100 * correct / total)
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Score", f"{correct}/{total}", f"{pct}%")
+        with col2:
+            if pct >= 70:
+                st.success("🎉 Passing score!")
+            else:
+                st.warning("📚 Keep studying!")
+
+        if st.button("🔄 Retake Quiz", key=f"pq_retake_{file_key}"):
+            del st.session_state.page_quiz[file_key]
+            st.rerun()
 
 
 def get_exam_badge(tags: list) -> str:
@@ -425,8 +464,12 @@ def show_study():
         else:
             rendered = embed_images(f"## {heading}\n\n{content}", current_file)
             st.markdown(rendered, unsafe_allow_html=True)
-            if should_add_checkpoint(heading):
-                render_section_checkpoint(file_key, heading, content)
+            if should_add_recap(heading):
+                render_section_recap(file_key, heading, content)
+
+    # End-of-page quiz
+    st.divider()
+    render_page_quiz(file_key, meta, clean_body)
 
     # Contextual chatbot
     st.divider()

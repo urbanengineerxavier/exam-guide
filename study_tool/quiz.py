@@ -159,7 +159,7 @@ Generate {num_questions} questions testing the key concepts from this specific l
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
-            max_tokens=1200
+            max_tokens=3000
         )
 
         result = parse_quiz_response(response.choices[0].message.content)
@@ -172,6 +172,39 @@ Generate {num_questions} questions testing the key concepts from this specific l
         print(f"\n  [!] Error generating page quiz: {e}")
         traceback.print_exc()
         return []
+
+
+def generate_section_recap(section_title: str, section_text: str) -> str:
+    """Generate a bullet-point recap summary for a single markdown section."""
+    if not HAS_OPENAI or not OPENAI_API_KEY:
+        return ""
+
+    client = OpenAI(api_key=OPENAI_API_KEY)
+
+    prompt = f"""Summarise the key concepts from this section in at least 5 bullet points.
+
+SECTION: {section_title}
+
+CONTENT:
+{section_text[:2000]}
+
+Write 5-7 concise bullet points covering the most important concepts a student must remember.
+Use plain markdown bullets (- ). No headers, no bold, just clear bullet points."""
+
+    try:
+        response = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {"role": "system", "content": "You are a study assistant that writes concise, exam-focused recap summaries."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.5,
+            max_tokens=500
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"[!] Error generating section recap: {e}")
+        return ""
 
 
 def generate_section_quiz(section_title: str, section_text: str, n: int = 2) -> list[Question]:
