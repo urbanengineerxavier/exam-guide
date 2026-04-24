@@ -228,12 +228,6 @@ def render_page_quiz(file_key: str, meta: dict, content: str):
     answers = st.session_state.page_quiz[file_key]['answers']
     submitted = st.session_state.page_quiz[file_key]['submitted']
 
-    # Check submit button in same render — no rerun needed to flip to results
-    if not submitted and len(answers) == total:
-        if st.button("📊 Submit Quiz", key=f"pq_submit_{file_key}", type="primary", use_container_width=True):
-            st.session_state.page_quiz[file_key]['submitted'] = True
-            submitted = True  # take effect immediately in this render
-
     if not submitted:
         answered = len(answers)
         st.progress(answered / total, f"Answered: {answered}/{total}")
@@ -248,6 +242,11 @@ def render_page_quiz(file_key: str, meta: dict, content: str):
                     st.session_state.page_quiz[file_key]['answers'][i] = letter
                     st.rerun()
             st.markdown("")
+
+        if len(answers) == total:
+            if st.button("📊 Submit Quiz", key=f"pq_submit_{file_key}", type="primary", use_container_width=True):
+                st.session_state.page_quiz[file_key]['submitted'] = True
+                st.rerun()
     else:
         correct = 0
         for i, q in enumerate(questions):
