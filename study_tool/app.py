@@ -116,6 +116,22 @@ def embed_images(text: str, file_path: Path) -> str:
         text,
         flags=re.IGNORECASE
     )
+
+    # Also convert markdown image syntax ![alt](path) to base64 <img> tags
+    def replace_md_img(match):
+        alt = match.group(1)
+        src = match.group(2)
+        if src.startswith('http'):
+            return match.group(0)
+        img_path = (file_path.parent / src).resolve()
+        if img_path.exists():
+            ext = img_path.suffix.lstrip('.').lower()
+            mime = 'image/jpeg' if ext in ('jpg', 'jpeg') else f'image/{ext}'
+            data = base64.b64encode(img_path.read_bytes()).decode()
+            return f'<img src="data:{mime};base64,{data}" alt="{alt}" style="width:100%">'
+        return ''
+
+    text = re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', replace_md_img, text)
     return text
 
 
