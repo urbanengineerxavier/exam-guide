@@ -308,7 +308,12 @@ def get_exam_badge(tags: list) -> str:
     return "General"
 
 
-@st.cache_data
+def fmt_name(name: str) -> str:
+    """Format a folder name for display: replace hyphens with spaces, title-case."""
+    return name.replace('-', ' ').replace('  ', ' ')
+
+
+@st.cache_data(ttl=60)
 def get_folder_structure():
     """Get courses and topics from folder structure."""
     courses = {}
@@ -381,7 +386,7 @@ def show_home():
         topic_count = len(topics)
         file_count = sum(len(files) for files in topics.values())
 
-        with st.expander(f"**{course_name}** - {topic_count} topics, {file_count} lessons"):
+        with st.expander(f"**{fmt_name(course_name)}** - {topic_count} topics, {file_count} lessons"):
             for topic_name, files in topics.items():
                 st.write(f"📁 **{topic_name}** ({len(files)} files)")
                 for f in files[:3]:
@@ -476,7 +481,8 @@ def show_study():
 
     # Course selector
     course_names = list(courses.keys())
-    selected_course = st.selectbox("Course", course_names, key="course_select")
+    selected_course = st.selectbox("Course", course_names, key="course_select",
+                                   format_func=fmt_name)
 
     # Topic selector
     topics = courses[selected_course]
@@ -602,11 +608,11 @@ def show_quiz():
 
         # Topic selection based on scope
         if quiz_scope == "Single Topic":
-            course = st.selectbox("Course", list(courses.keys()))
+            course = st.selectbox("Course", list(courses.keys()), format_func=fmt_name)
             topic = st.selectbox("Topic", list(courses[course].keys()))
             files = courses[course][topic]
         elif quiz_scope == "Full Course":
-            course = st.selectbox("Course", list(courses.keys()))
+            course = st.selectbox("Course", list(courses.keys()), format_func=fmt_name)
             files = []
             for topic_files in courses[course].values():
                 files.extend(topic_files)

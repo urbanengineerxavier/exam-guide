@@ -1,0 +1,1 @@
+{"recap": "- Permissions must be manually set for other users to query and review the app.\n- Access the **Serving** page to manage endpoint settings.\n- Select the deployed endpoint you want to modify.\n- Navigate to the **Permissions** section for that endpoint.\n- Set the **Can Query** option to \"All workspace users\" to allow access."}
